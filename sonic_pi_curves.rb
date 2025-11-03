@@ -79,7 +79,14 @@ module SonicPiCurves
   # All return lambdas that map 0-1 input to 0-1 output (by default)
   
   # Constant value, optionally modulated
-  def const(value: 1, mod: false, amp: 1, rate: 1, phase: 0, bias: 0)
+  def const(opts = {})
+    value = opts[:value] || 1
+    mod = opts[:mod] || false
+    amp = opts[:amp] || 1
+    rate = opts[:rate] || 1
+    phase = opts[:phase] || 0
+    bias = opts[:bias] || 0
+
     lambda do |pos|
       if mod
         pos = calc_pos(pos, rate, phase)
@@ -92,25 +99,38 @@ module SonicPiCurves
   end
   
   # Random noise generator (uniform or triangular distribution)
-  def noise(low: 0, high: 1, mode: nil, amp: 1, rate: 1, phase: 0, bias: 0)
+  def noise(opts = {})
+    low = opts[:low] || 0
+    high = opts[:high] || 1
+    mode = opts[:mode]
+    amp = opts[:amp] || 1
+    rate = opts[:rate] || 1
+    phase = opts[:phase] || 0
+    bias = opts[:bias] || 0
+
     lambda do |pos|
       pos = calc_pos(pos, rate, phase)
       lo = callable?(low) ? low.call(pos) : low
       hi = callable?(high) ? high.call(pos) : high
-      
+
       value = if mode
         m = callable?(mode) ? mode.call(pos) : mode
         triangular(lo, hi, m)
       else
         rand(lo..hi)
       end
-      
+
       amp_bias(value, amp, bias, pos)
     end
   end
   
   # Linear ramp (0 to 1)
-  def ramp(amp: 1, rate: 1, phase: 0, bias: 0)
+  def ramp(opts = {})
+    amp = opts[:amp] || 1
+    rate = opts[:rate] || 1
+    phase = opts[:phase] || 0
+    bias = opts[:bias] || 0
+
     lambda do |pos|
       pos = calc_pos_linear(pos, rate, phase)
       amp_bias(pos, amp, bias)
@@ -118,15 +138,25 @@ module SonicPiCurves
   end
 
   # Sawtooth (1 to 0)
-  def saw(amp: 1, rate: 1, phase: 0, bias: 0)
+  def saw(opts = {})
+    amp = opts[:amp] || 1
+    rate = opts[:rate] || 1
+    phase = opts[:phase] || 0
+    bias = opts[:bias] || 0
+
     lambda do |pos|
       pos = calc_pos_linear(pos, rate, phase)
       amp_bias(1 - pos, amp, bias)
     end
   end
-  
+
   # Triangle wave with adjustable symmetry
-  def triangle(symmetry: 0.5, amp: 1, rate: 1, phase: 0, bias: 0)
+  def triangle(opts = {})
+    symmetry = opts[:symmetry] || 0.5
+    amp = opts[:amp] || 1
+    rate = opts[:rate] || 1
+    phase = opts[:phase] || 0
+    bias = opts[:bias] || 0
     lambda do |pos|
       pos = calc_pos(pos, rate, phase)
       sym = callable?(symmetry) ? symmetry.call(pos) : symmetry
@@ -143,16 +173,27 @@ module SonicPiCurves
   end
   
   # Sine wave
-  def sine(amp: 1, rate: 1, phase: 0, bias: 0)
+  def sine(opts = {})
+    amp = opts[:amp] || 1
+    rate = opts[:rate] || 1
+    phase = opts[:phase] || 0
+    bias = opts[:bias] || 0
+
     lambda do |pos|
       pos = calc_pos(pos, rate, phase)
       value = Math.sin(pos2rad(pos)) * 0.5 + 0.5
       amp_bias(value, amp, bias, pos)
     end
   end
-  
+
   # Pulse wave with adjustable width
-  def pulse(width: 0.5, amp: 1, rate: 1, phase: 0, bias: 0)
+  def pulse(opts = {})
+    width = opts[:width] || 0.5
+    amp = opts[:amp] || 1
+    rate = opts[:rate] || 1
+    phase = opts[:phase] || 0
+    bias = opts[:bias] || 0
+
     lambda do |pos|
       pos = calc_pos(pos, rate, phase)
       w = callable?(width) ? width.call(pos) : width
@@ -163,7 +204,13 @@ module SonicPiCurves
   end
   
   # Exponential ease-in curve
-  def ease_in(exp: 2, amp: 1, rate: 1, phase: 0, bias: 0)
+  def ease_in(opts = {})
+    exp = opts[:exp] || 2
+    amp = opts[:amp] || 1
+    rate = opts[:rate] || 1
+    phase = opts[:phase] || 0
+    bias = opts[:bias] || 0
+
     lambda do |pos|
       pos = calc_pos_linear(pos, rate, phase)
       e = callable?(exp) ? exp.call(pos) : exp
@@ -172,7 +219,13 @@ module SonicPiCurves
   end
 
   # Logarithmic ease-out curve
-  def ease_out(exp: 3, amp: 1, rate: 1, phase: 0, bias: 0)
+  def ease_out(opts = {})
+    exp = opts[:exp] || 3
+    amp = opts[:amp] || 1
+    rate = opts[:rate] || 1
+    phase = opts[:phase] || 0
+    bias = opts[:bias] || 0
+
     lambda do |pos|
       pos = calc_pos_linear(pos, rate, phase)
       e = callable?(exp) ? exp.call(pos) : exp
@@ -181,7 +234,12 @@ module SonicPiCurves
   end
 
   # S-curve ease-in-out
-  def ease_in_out(exp: 3, amp: 1, rate: 1, phase: 0, bias: 0)
+  def ease_in_out(opts = {})
+    exp = opts[:exp] || 3
+    amp = opts[:amp] || 1
+    rate = opts[:rate] || 1
+    phase = opts[:phase] || 0
+    bias = opts[:bias] || 0
     lambda do |pos|
       pos = calc_pos_linear(pos, rate, phase)
       value = pos * 2
@@ -199,18 +257,24 @@ module SonicPiCurves
   end
 
   # Inverse S-curve ease-out-in
-  def ease_out_in(exp: 3, amp: 1, rate: 1, phase: 0, bias: 0)
+  def ease_out_in(opts = {})
+    exp = opts[:exp] || 3
+    amp = opts[:amp] || 1
+    rate = opts[:rate] || 1
+    phase = opts[:phase] || 0
+    bias = opts[:bias] || 0
+
     lambda do |pos|
       pos = calc_pos_linear(pos, rate, phase)
       value = pos * 2 - 1
       e = callable?(exp) ? exp.call(pos) : exp
-      
+
       result = if value < 1
         0.5 * value ** e + 0.5
       else
         1.0 - (0.5 * value ** e + 0.5)
       end
-      
+
       amp_bias(result, amp, bias, pos)
     end
   end
@@ -287,7 +351,9 @@ module SonicPiCurves
   end
   
   # Sample a curve function to an array
-  def to_array(curve_func, num_samples, map_func: nil)
+  def to_array(curve_func, num_samples, opts = {})
+    map_func = opts[:map_func]
+
     Array.new(num_samples) do |i|
       sample = curve_func.call(i.to_f / num_samples)
       map_func ? map_func.call(sample) : sample
@@ -320,13 +386,19 @@ module SonicPiCurves
   # Sonic Pi specific extensions
   
   # Create an envelope that maps to Sonic Pi's ADSR parameters
-  def adsr(attack: 0.01, decay: 0.1, sustain: 0.7, release: 0.2, 
-           sustain_level: 0.8, curve: :linear)
+  def adsr(opts = {})
+    attack = opts[:attack] || 0.01
+    decay = opts[:decay] || 0.1
+    sustain = opts[:sustain] || 0.7
+    release = opts[:release] || 0.2
+    sustain_level = opts[:sustain_level] || 0.8
+    curve = opts[:curve] || :linear
+
     total = attack + decay + sustain + release
     a_norm = attack / total
     d_norm = decay / total
     s_norm = sustain / total
-    
+
     curve_func = case curve
     when :step then pulse
     when :linear then ramp
@@ -335,7 +407,7 @@ module SonicPiCurves
     when :logarithmic then ease_out
     else ramp
     end
-    
+
     breakpoints(
       [0, 0],
       [a_norm, 1, curve_func],
@@ -346,7 +418,12 @@ module SonicPiCurves
   end
   
   # LFO helper for common modulation patterns
-  def lfo(shape: :sine, rate: 1, depth: 1, offset: 0)
+  def lfo(opts = {})
+    shape = opts[:shape] || :sine
+    rate = opts[:rate] || 1
+    depth = opts[:depth] || 1
+    offset = opts[:offset] || 0
+
     base_func = case shape
     when :sine then sine(rate: rate)
     when :triangle then triangle(rate: rate)
@@ -360,9 +437,11 @@ module SonicPiCurves
       (base_func.call(pos) - 0.5) * depth + offset
     end
   end
-  
+
   # Sequencer - cycles through values at specified rate
-  def sequencer(values, smooth: false)
+  def sequencer(values, opts = {})
+    smooth = opts[:smooth] || false
+
     if smooth
       timeseries(values)
     else
@@ -375,14 +454,5 @@ module SonicPiCurves
 end
 
 # Export all module methods to top-level for Sonic Pi compatibility
-# Sonic Pi doesn't support include/extend in its sandboxed runtime
-SonicPiCurves.public_instance_methods(false).each do |method_name|
-  define_method(method_name) do |*args, &block|
-    if args.last.is_a?(Hash) && args.last.empty?
-      # Handle edge case where kwargs are passed as empty hash
-      SonicPiCurves.send(method_name, *args[0..-2], &block)
-    else
-      SonicPiCurves.send(method_name, *args, &block)
-    end
-  end
-end
+# Sonic Pi doesn't support 'include' in user code, but we can extend self
+extend SonicPiCurves
