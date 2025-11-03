@@ -18,12 +18,25 @@ module SonicPiCurves
     [[pos, 0.0].max, 1.0].min
   end
   
-  # Apply rate and phase modulation to position
+  # Apply rate and phase modulation to position (with wrapping for periodic curves)
   def calc_pos(pos, rate, phase)
     pos = clamp(pos)
     pos *= callable?(rate) ? rate.call(pos) : rate
     phase_offset = callable?(phase) ? phase.call(pos) : phase
     (pos + phase_offset) % 1.0
+  end
+
+  # Apply rate and phase modulation to position (smart wrapping for linear curves)
+  # Wraps normally, but preserves 1.0 when rate=1 and phase=0
+  def calc_pos_linear(pos, rate, phase)
+    pos = clamp(pos)
+    r = callable?(rate) ? rate.call(pos) : rate
+    p = callable?(phase) ? phase.call(pos) : phase
+
+    # If position is exactly 1.0 and no modulation, keep it as 1.0
+    return 1.0 if pos == 1.0 && r == 1 && p == 0
+
+    ((pos * r) + p) % 1.0
   end
   
   # Apply amplitude scaling and bias offset
@@ -59,7 +72,7 @@ module SonicPiCurves
     min, max = values.minmax
     range = max - min
     return values.map { 0.5 } if range == 0
-    values.map { |v| (v - min) / range }
+    values.map { |v| (v - min) / range.to_f }
   end
   
   # Curve generator functions
@@ -99,16 +112,16 @@ module SonicPiCurves
   # Linear ramp (0 to 1)
   def ramp(amp: 1, rate: 1, phase: 0, bias: 0)
     lambda do |pos|
-      pos = calc_pos(pos, rate, phase)
+      pos = calc_pos_linear(pos, rate, phase)
       amp_bias(pos, amp, bias)
     end
   end
-  
+
   # Sawtooth (1 to 0)
   def saw(amp: 1, rate: 1, phase: 0, bias: 0)
     lambda do |pos|
-      pos = calc_pos(1 - pos, rate, phase)
-      amp_bias(pos, amp, bias)
+      pos = calc_pos_linear(pos, rate, phase)
+      amp_bias(1 - pos, amp, bias)
     end
   end
   
@@ -152,43 +165,43 @@ module SonicPiCurves
   # Exponential ease-in curve
   def ease_in(exp: 2, amp: 1, rate: 1, phase: 0, bias: 0)
     lambda do |pos|
-      pos = calc_pos(pos, rate, phase)
+      pos = calc_pos_linear(pos, rate, phase)
       e = callable?(exp) ? exp.call(pos) : exp
       amp_bias(pos ** e, amp, bias, pos)
     end
   end
-  
+
   # Logarithmic ease-out curve
   def ease_out(exp: 3, amp: 1, rate: 1, phase: 0, bias: 0)
     lambda do |pos|
-      pos = calc_pos(pos, rate, phase)
+      pos = calc_pos_linear(pos, rate, phase)
       e = callable?(exp) ? exp.call(pos) : exp
-      amp_bias((pos - 1) ** e + 1, amp, bias, pos)
+      amp_bias(1 - (1 - pos) ** e, amp, bias, pos)
     end
   end
-  
+
   # S-curve ease-in-out
   def ease_in_out(exp: 3, amp: 1, rate: 1, phase: 0, bias: 0)
     lambda do |pos|
-      pos = calc_pos(pos, rate, phase)
+      pos = calc_pos_linear(pos, rate, phase)
       value = pos * 2
       e = callable?(exp) ? exp.call(pos) : exp
-      
+
       result = if value < 1
         0.5 * value ** e
       else
         value -= 2
         0.5 * (value ** e + 2)
       end
-      
+
       amp_bias(result, amp, bias, pos)
     end
   end
-  
+
   # Inverse S-curve ease-out-in
   def ease_out_in(exp: 3, amp: 1, rate: 1, phase: 0, bias: 0)
     lambda do |pos|
-      pos = calc_pos(pos, rate, phase)
+      pos = calc_pos_linear(pos, rate, phase)
       value = pos * 2 - 1
       e = callable?(exp) ? exp.call(pos) : exp
       
@@ -240,7 +253,7 @@ module SonicPiCurves
     normalized_points = points.map do |point|
       norm_time = time_range > 0 ? (point[0] - min_time) / time_range.to_f : 0
       norm_val = (point[1] - min_val) / val_range.to_f
-      curve = point[2] || method(:ramp)
+      curve = point[2] || ramp
       [norm_time, norm_val, curve]
     end
     
@@ -315,12 +328,12 @@ module SonicPiCurves
     s_norm = sustain / total
     
     curve_func = case curve
-    when :step then method(:pulse)
-    when :linear then method(:ramp)
-    when :sine then method(:sine)
-    when :exponential then method(:ease_in)
-    when :logarithmic then method(:ease_out)
-    else method(:ramp)
+    when :step then pulse
+    when :linear then ramp
+    when :sine then sine
+    when :exponential then ease_in
+    when :logarithmic then ease_out
+    else ramp
     end
     
     breakpoints(
@@ -342,9 +355,9 @@ module SonicPiCurves
     when :noise then noise
     else sine(rate: rate)
     end
-    
+
     lambda do |pos|
-      base_func.call(pos) * depth + offset
+      (base_func.call(pos) - 0.5) * depth + offset
     end
   end
   
