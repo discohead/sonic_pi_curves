@@ -3,11 +3,8 @@
 # These examples demonstrate musical applications in Sonic Pi
 
 # Load the library (adjust path as needed)
-# load "~/sonic_pi_curves.rb"
-# include SonicPiCurves
-
-# Or use the shorter alias
-# include SPCurves
+load "~/sonic_pi_curves.rb"
+# All functions are now available at top-level (no include needed)
 
 # Example 1: Basic envelope for amplitude control
 use_synth :saw
@@ -272,3 +269,327 @@ end
 #      control s, note: 60 + curve.call(i/64.0) * 12
 #      sleep 0.125
 #    end
+
+# ============================================================================
+# BATCHES INTEGRATION EXAMPLES
+# Demonstrating Curtis Roads' multiscalar time and Mark Fell's pattern synthesis
+# ============================================================================
+
+# Example 13: Sample Morphing - Micro Time Scale
+# Smoothly morph through samples in a directory using curves
+# Demonstrates Curtis Roads' concept of sound object transformation
+
+# Setup for batches samples (adjust paths as needed)
+define :batches_path do |category|
+  "/Users/jaredmcfarland/Music/Samples/batches_dirt/#{category}/"
+end
+
+define :play_batches_curved do |category, index_curve, pos, opts = {}|
+  idx = sample_selector(index_curve, num_samples: 128).call(pos)
+  cat_str = category.to_s
+  sample_path = "#{batches_path(category)}#{cat_str}_#{idx.to_s.rjust(3, '0')}.wav"
+  sample sample_path, **opts
+end
+
+# Morph from one kick sound to another over time
+live_loop :sample_morphing do
+  morph = ease_in_out(exp: 2)  # Smooth transition curve
+
+  16.times do |i|
+    pos = i / 16.0
+    play_batches_curved(:kck, morph, pos,
+                        amp: 0.7,
+                        rate: [0.8, 1.0, 1.2].choose)
+    sleep 0.25
+  end
+end
+
+# Example 14: Probability-Driven Triggering - Meso Time Scale
+# Use curves to control event density and probability
+# Demonstrates Mark Fell's stochastic pattern synthesis
+
+live_loop :evolving_density do
+  # Density swells and fades
+  density = sine(rate: 0.5, amp: 0.5, bias: 0.5)
+  gate = bernoulli_gate(density)
+
+  # Sample selection also evolves
+  sample_curve = triangle(rate: 0.25)
+
+  32.times do |i|
+    pos = i / 32.0
+
+    if gate.call(pos) > 0.5
+      play_batches_curved(:hat, sample_curve, pos,
+                          amp: 0.5,
+                          rate: [0.9, 1.0, 1.1].choose,
+                          pan: rand(2) - 1)
+    end
+    sleep 0.125
+  end
+end
+
+# Example 15: Multi-Scale Pattern Synthesis
+# Demonstrates simultaneous control at micro, meso, and macro time scales
+
+live_loop :multiscale_synthesis do
+  # MACRO: Overall intensity envelope
+  macro_env = adsr(attack: 4, decay: 2, sustain: 8, release: 2)
+
+  # MESO: Event density pattern
+  meso_density = pulse(width: 0.6, rate: 2)
+
+  # MICRO: Sample playback modulation
+  micro_rate = sine(rate: 8)
+
+  64.times do |i|
+    pos = i / 64.0
+
+    # Get values from each time scale
+    macro_amp = macro_env.call(pos)
+    meso_prob = meso_density.call(pos)
+    micro_mod = micro_rate.call(pos)
+
+    # Trigger based on meso probability, scale by macro envelope
+    if bernoulli_gate(meso_prob).call(pos) > 0.5
+      # Sample selection based on position
+      sample_idx = (pos * 127).round
+
+      play_batches_curved(:snr, const(value: pos), pos,
+                          amp: macro_amp * 0.8,
+                          rate: 0.8 + micro_mod * 0.4,
+                          lpf: 60 + macro_amp * 60)
+    end
+    sleep 0.125
+  end
+end
+
+# Example 16: Categorical Sample Selection
+# Use curves to select between different sample categories
+
+live_loop :category_sequencing do
+  # Sequence through different sonic textures
+  categories = [:kck, :snr, :hat, :clp]
+  cat_selector = categorical_sample(sequencer([0, 0.33, 0.66, 1.0]), categories)
+
+  # Sample index within category also curves
+  index_curve = ramp
+
+  16.times do |i|
+    pos = i / 16.0
+    category = cat_selector.call(pos)
+
+    play_batches_curved(category, index_curve, pos,
+                        amp: 0.7,
+                        rate: 1.0)
+    sleep 0.25
+  end
+end
+
+# Example 17: Temporal Sequence Control
+# Events follow curve-controlled timing
+
+live_loop :temporal_control do
+  # Define a sequence of sound events
+  events = [:kck, :snr, :hat, :clp]
+
+  # Timing follows an accelerating curve
+  timing = ease_in(exp: 2)
+  seq = temporal_sequence(timing, events)
+
+  16.times do |i|
+    pos = i / 16.0
+    event, time_in_event = seq.call(pos)
+
+    # Play the event with timing-based modulation
+    sample_idx = (time_in_event * 127).round
+    play_batches_curved(event, const(value: time_in_event), pos,
+                        amp: 0.6,
+                        rate: 0.8 + time_in_event * 0.4)
+    sleep 0.125
+  end
+end
+
+# Example 18: Behavior Transition - Pattern Morphing
+# Smoothly transition between two different rhythmic patterns
+
+live_loop :pattern_morphing do
+  # Pattern A: Regular kick pattern
+  pattern_a = pulse(width: 0.25, rate: 4)
+
+  # Pattern B: Syncopated pattern
+  pattern_b = pulse(width: 0.15, rate: 6, phase: 0.1)
+
+  # Transition curve (linear morph)
+  transition = ramp
+
+  # Morph between patterns
+  hybrid_pattern = behavior_transition(pattern_a, pattern_b, transition)
+
+  32.times do |i|
+    pos = i / 32.0
+
+    if hybrid_pattern.call(pos) > 0.5
+      play_batches_curved(:kck, const(value: pos), pos,
+                          amp: 0.7)
+    end
+    sleep 0.125
+  end
+end
+
+# Example 19: Schmitt Gate for Stable Triggering
+# Prevents jittery triggers at threshold crossings
+
+live_loop :stable_triggers do
+  # Slowly varying curve might cross threshold multiple times
+  wobbly = mix(sine(rate: 1), 0.7, noise, 0.3)
+
+  # Schmitt gate provides clean on/off with hysteresis
+  stable_gate = schmitt_gate(wobbly, threshold_low: 0.4, threshold_high: 0.6)
+
+  32.times do |i|
+    pos = i / 32.0
+
+    if stable_gate.call(pos) > 0.5
+      play_batches_curved(:hat, const(value: 0.5), pos,
+                          amp: 0.5)
+    else
+      play_batches_curved(:kck, const(value: 0.3), pos,
+                          amp: 0.6)
+    end
+    sleep 0.125
+  end
+end
+
+# Example 20: Non-Linear Time - Mark Fell Style Pattern Synthesis
+# Demonstrates path-dependent, self-similar structures
+
+live_loop :nonlinear_time do
+  # Create nested temporal structures
+
+  # Outer loop: slow evolution (macro)
+  outer_curve = sine(rate: 0.25)
+
+  # Inner loop: fast variation (micro) - rate modulated by outer
+  inner_curve = lambda do |pos|
+    outer_val = outer_curve.call(pos)
+    rate = 1 + outer_val * 8  # Rate varies 1-9
+    sine(rate: rate).call(pos)
+  end
+
+  # Probability gate modulated by both scales
+  prob_curve = lambda do |pos|
+    outer_val = outer_curve.call(pos)
+    inner_val = inner_curve.call(pos)
+    (outer_val + inner_val) / 2.0
+  end
+
+  64.times do |i|
+    pos = i / 64.0
+
+    # Sample selection follows inner curve
+    sample_pos = (inner_curve.call(pos) + 1.0) / 2.0  # Normalize to 0-1
+
+    # Trigger follows probability
+    if bernoulli_gate(prob_curve).call(pos) > 0.5
+      play_batches_curved(:sir, const(value: sample_pos), pos,
+                          amp: 0.4 + prob_curve.call(pos) * 0.3,
+                          rate: [-2, -1, 1, 2].choose,
+                          lpf: 60 + sample_pos * 60)
+    end
+    sleep 0.0625
+  end
+end
+
+# Example 21: Granular-Style Texture Using Density Control
+# High-density events create texture similar to granular synthesis
+
+live_loop :textural_clouds do
+  # Varying density creates clouds of sound
+  cloud_density = mix(
+    sine(rate: 0.5), 0.6,      # Slow swell
+    noise(low: 0, high: 0.3), 0.4  # Random variation
+  )
+
+  # Sample selection drifts slowly
+  sample_drift = sine(rate: 0.1)
+
+  # High event rate for granular effect
+  128.times do |i|
+    pos = i / 128.0
+
+    # Fire events based on density
+    if bernoulli_gate(cloud_density).call(pos) > 0.5
+      play_batches_curved(:atm, sample_drift, pos,
+                          amp: 0.2 + rand * 0.2,
+                          rate: rand(0.5..1.5),
+                          pan: rand(2) - 1,
+                          attack: 0.01,
+                          release: rand(0.1..0.3))
+    end
+    sleep 0.03125  # Fast triggering (32 events/sec)
+  end
+end
+
+# Example 22: Algorithmic Form - Curtis Roads Macro Time
+# Curves define large-scale musical structure
+
+live_loop :algorithmic_form do
+  # Define formal sections using breakpoints
+  form = breakpoints(
+    [0.0, 0.1],              # Intro (quiet)
+    [0.2, 0.8, ease_in],     # Build
+    [0.5, 1.0],              # Peak (loud)
+    [0.7, 0.6, ease_out],    # Breakdown
+    [1.0, 0.2]               # Outro
+  )
+
+  # Density follows form
+  density_evolution = chain(form, ease_in_out(exp: 2))
+
+  # Sample selection also follows form
+  sample_evolution = form
+
+  128.times do |i|
+    pos = i / 128.0
+
+    intensity = form.call(pos)
+    density_val = density_evolution.call(pos)
+    sample_pos = sample_evolution.call(pos)
+
+    # Layered sounds based on intensity
+    if bernoulli_gate(density_val).call(pos) > 0.5
+      play_batches_curved(:kck, const(value: sample_pos), pos,
+                          amp: intensity * 0.8)
+    end
+
+    if intensity > 0.5 && bernoulli_gate(density_val * 0.5).call(pos) > 0.5
+      play_batches_curved(:snr, const(value: sample_pos), pos,
+                          amp: (intensity - 0.5) * 1.6)
+    end
+
+    sleep 0.0625
+  end
+end
+
+# Tips for Batches Integration:
+#
+# 1. SAMPLE MORPHING: Use sample_selector() with smooth curves (sine, ease_in_out)
+#    to create timbral transformations that feel organic
+#
+# 2. PROBABILITY CONTROL: Use bernoulli_gate() with evolving curves to create
+#    non-metronomic, human-feeling rhythms
+#
+# 3. MULTI-SCALE THINKING: Layer curves at different rates:
+#    - Micro (8-32x): Sample-level modulation
+#    - Meso (1-4x): Phrase-level patterns
+#    - Macro (0.1-0.5x): Formal structure
+#
+# 4. DETERMINISTIC RANDOMNESS: Position-seeded randomness in bernoulli_gate()
+#    creates repeatable "chance" operations - great for composition
+#
+# 5. PATTERN SYNTHESIS: Combine categorical_sample(), temporal_sequence(),
+#    and behavior_transition() to create evolving generative patterns
+#
+# 6. NON-LINEAR TIME: Nest curves (curves that call other curves) to create
+#    self-similar, fractal-like temporal structures

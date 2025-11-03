@@ -3,32 +3,29 @@
 # Adapted from Python signal.py and Lua curves.lua
 # Generates composable functions for modulation, envelopes, and control signals
 
-module SonicPiCurves
-  extend self
+# Core helper methods
   
-  # Core helper methods
-  
-  # Check if value responds to call (is a Proc/lambda/method)
-  def callable?(v)
-    v.respond_to?(:call)
-  end
-  
-  # Clamp value between 0 and 1
-  def clamp(pos)
+# Check if value responds to call (is a Proc/lambda/method)
+def callable?(v)
+  v.respond_to?(:call)
+end
+
+# Clamp value between 0 and 1
+def clamp(pos)
     [[pos, 0.0].max, 1.0].min
   end
   
-  # Apply rate and phase modulation to position (with wrapping for periodic curves)
-  def calc_pos(pos, rate, phase)
+# Apply rate and phase modulation to position (with wrapping for periodic curves)
+def calc_pos(pos, rate, phase)
     pos = clamp(pos)
     pos *= callable?(rate) ? rate.call(pos) : rate
     phase_offset = callable?(phase) ? phase.call(pos) : phase
     (pos + phase_offset) % 1.0
   end
 
-  # Apply rate and phase modulation to position (smart wrapping for linear curves)
-  # Wraps normally, but preserves 1.0 when rate=1 and phase=0
-  def calc_pos_linear(pos, rate, phase)
+# Apply rate and phase modulation to position (smart wrapping for linear curves)
+# Wraps normally, but preserves 1.0 when rate=1 and phase=0
+def calc_pos_linear(pos, rate, phase)
     pos = clamp(pos)
     r = callable?(rate) ? rate.call(pos) : rate
     p = callable?(phase) ? phase.call(pos) : phase
@@ -39,21 +36,21 @@ module SonicPiCurves
     ((pos * r) + p) % 1.0
   end
   
-  # Apply amplitude scaling and bias offset
-  def amp_bias(value, amp, bias, pos = nil)
+# Apply amplitude scaling and bias offset
+def amp_bias(value, amp, bias, pos = nil)
     p = pos || value
     amp_val = callable?(amp) ? amp.call(p) : amp
     bias_val = callable?(bias) ? bias.call(p) : bias
     value * amp_val + bias_val
   end
   
-  # Convert 0-1 position to radians
-  def pos2rad(pos)
+# Convert 0-1 position to radians
+def pos2rad(pos)
     clamp(pos) * 2 * Math::PI
   end
   
-  # Triangular distribution for weighted random values
-  def triangular(low, high, mode = nil)
+# Triangular distribution for weighted random values
+def triangular(low, high, mode = nil)
     r = rand
     mode ||= 0.5
     
@@ -66,8 +63,8 @@ module SonicPiCurves
     low + (high - low) * Math.sqrt(r * mode)
   end
   
-  # Normalize array of values to 0-1 range
-  def normalize(values)
+# Normalize array of values to 0-1 range
+def normalize(values)
     return [] if values.empty?
     min, max = values.minmax
     range = max - min
@@ -75,11 +72,11 @@ module SonicPiCurves
     values.map { |v| (v - min) / range.to_f }
   end
   
-  # Curve generator functions
-  # All return lambdas that map 0-1 input to 0-1 output (by default)
-  
-  # Constant value, optionally modulated
-  def const(value: 1, mod: false, amp: 1, rate: 1, phase: 0, bias: 0)
+# Curve generator functions
+# All return lambdas that map 0-1 input to 0-1 output (by default)
+
+# Constant value, optionally modulated
+def const(value: 1, mod: false, amp: 1, rate: 1, phase: 0, bias: 0)
     lambda do |pos|
       if mod
         pos = calc_pos(pos, rate, phase)
@@ -285,7 +282,96 @@ module SonicPiCurves
       start_point[1] + curved_pos * (end_point[1] - start_point[1])
     end
   end
-  
+
+  # Probability and Selection Functions
+  # For algorithmic composition, pattern synthesis, and sample manipulation
+
+  # Boolean gate based on probability curve (0-1)
+  # Returns 1.0 when triggered, 0.0 otherwise
+  # Uses position-seeded randomness for deterministic behavior
+  def bernoulli_gate(prob_curve)
+    lambda do |pos|
+      prob = callable?(prob_curve) ? prob_curve.call(pos) : prob_curve
+      prob = clamp(prob)
+      # Seed randomness with position for determinism
+      Random.new((pos * 1000000).to_i).rand < prob ? 1.0 : 0.0
+    end
+  end
+
+  # Schmitt trigger gate with hysteresis (prevents jitter at threshold)
+  # Maintains state between calls - not purely functional but useful for control
+  def schmitt_gate(curve, threshold_low: 0.3, threshold_high: 0.7)
+    state = [false] # Use array to allow mutation in closure
+    lambda do |pos|
+      value = callable?(curve) ? curve.call(pos) : curve
+      state[0] = true if value > threshold_high
+      state[0] = false if value < threshold_low
+      state[0] ? 1.0 : 0.0
+    end
+  end
+
+  # Select element from array based on curve value
+  # Curve value 0-1 maps to array indices
+  def categorical_sample(curve, options = [])
+    return const(value: 0) if options.empty?
+    lambda do |pos|
+      curve_val = callable?(curve) ? curve.call(pos) : curve
+      curve_val = clamp(curve_val)
+      index = (curve_val * options.length).floor.clamp(0, options.length - 1)
+      options[index]
+    end
+  end
+
+  # Map curve to sample index (for sample selection)
+  # Useful for morphing between samples in a directory
+  def sample_selector(curve, num_samples: 128)
+    lambda do |pos|
+      curve_val = callable?(curve) ? curve.call(pos) : curve
+      curve_val = clamp(curve_val)
+      (curve_val * (num_samples - 1)).round.clamp(0, num_samples - 1)
+    end
+  end
+
+  # Temporal Structure Functions
+  # For controlling event density, timing, and compositional form
+
+  # Modulate event density based on curve
+  # Returns probability of event firing at given position
+  def density_curve(base_rate, density_curve)
+    lambda do |pos|
+      density = callable?(density_curve) ? density_curve.call(pos) : density_curve
+      density = clamp(density)
+      # Use position-based threshold for deterministic triggering
+      threshold = (pos * base_rate) % 1.0
+      threshold < density ? 1.0 : 0.0
+    end
+  end
+
+  # Sequence through events with timing controlled by curve
+  # Returns [event_index, position_in_event]
+  def temporal_sequence(timing_curve, events)
+    return const(value: 0) if events.empty?
+    lambda do |pos|
+      timing = callable?(timing_curve) ? timing_curve.call(pos) : timing_curve
+      timing = clamp(timing)
+      event_index = (timing * events.length).floor.clamp(0, events.length - 1)
+      time_in_event = (timing * events.length) % 1.0
+      [events[event_index], time_in_event]
+    end
+  end
+
+  # Crossfade between two curves/behaviors
+  # transition_curve: 0 = start behavior, 1 = end behavior
+  def behavior_transition(start_behavior, end_behavior, transition_curve)
+    lambda do |pos|
+      trans = callable?(transition_curve) ? transition_curve.call(pos) : transition_curve
+      trans = clamp(trans)
+      start_val = callable?(start_behavior) ? start_behavior.call(pos) : start_behavior
+      end_val = callable?(end_behavior) ? end_behavior.call(pos) : end_behavior
+      start_val * (1 - trans) + end_val * trans
+    end
+  end
+
   # Sample a curve function to an array
   def to_array(curve_func, num_samples, map_func: nil)
     Array.new(num_samples) do |i|
@@ -374,15 +460,8 @@ module SonicPiCurves
   end
 end
 
-# Export all module methods to top-level for Sonic Pi compatibility
-# Sonic Pi doesn't support include/extend in its sandboxed runtime
-SonicPiCurves.public_instance_methods(false).each do |method_name|
-  define_method(method_name) do |*args, &block|
-    if args.last.is_a?(Hash) && args.last.empty?
-      # Handle edge case where kwargs are passed as empty hash
-      SonicPiCurves.send(method_name, *args[0..-2], &block)
-    else
-      SonicPiCurves.send(method_name, *args, &block)
-    end
-  end
+# Convenience module for cleaner syntax in Sonic Pi
+module SPCurves
+  include SonicPiCurves
+  extend self
 end

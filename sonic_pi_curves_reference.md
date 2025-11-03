@@ -7,7 +7,7 @@ All curve functions return lambdas that map position (0-1) to output values (typ
 ## Basic Usage
 ```ruby
 load "~/sonic_pi_curves.rb"
-include SonicPiCurves  # or SPCurves for short
+# All functions available immediately (no include needed)
 
 # Create a curve
 my_curve = sine(rate: 2, amp: 0.5)
@@ -77,6 +77,38 @@ adsr(
 
 # Create curve from array of values
 timeseries([0, 0.5, 1, 0.3, 0])  # Interpolates between points
+```
+
+### Probability & Selection (New!)
+```ruby
+# Boolean gate based on probability curve (0-1)
+# Returns 1.0 or 0.0, uses position-seeded randomness
+bernoulli_gate(prob_curve)
+
+# Schmitt trigger with hysteresis (prevents jitter)
+# State maintained between calls
+schmitt_gate(curve, threshold_low: 0.3, threshold_high: 0.7)
+
+# Select element from array based on curve value (0-1)
+categorical_sample(curve, [:option1, :option2, :option3])
+
+# Map curve to sample index (useful for sample morphing)
+sample_selector(curve, num_samples: 128)
+```
+
+### Temporal Structure (New!)
+```ruby
+# Control event density based on curve
+# Returns 1.0 when event should fire, 0.0 otherwise
+density_curve(base_rate, density_curve)
+
+# Sequence through events with curve-controlled timing
+# Returns [event, position_in_event]
+temporal_sequence(timing_curve, [:event1, :event2, :event3])
+
+# Crossfade between two curves/behaviors
+# transition_curve: 0 = start, 1 = end
+behavior_transition(start_curve, end_curve, transition_curve)
 ```
 
 ## Utility Functions
@@ -210,3 +242,207 @@ live_loop :consumer do
   play 60, cutoff: 40 + get[:global_cutoff] * 80
 end
 ```
+
+## Advanced Composition: Multiscalar Time & Pattern Synthesis
+
+### Curtis Roads - Micro/Meso/Macro Time Scales
+
+The new probability and temporal functions enable composition across multiple time scales simultaneously:
+
+```ruby
+# MACRO: Overall form (slow evolution)
+macro_form = adsr(attack: 4, decay: 2, sustain: 8, release: 2)
+
+# MESO: Phrase-level density (medium speed)
+meso_density = pulse(width: 0.6, rate: 2)
+
+# MICRO: Sample-level modulation (fast)
+micro_rate = sine(rate: 8)
+
+64.times do |i|
+  pos = i / 64.0
+
+  # Intensity at macro scale
+  intensity = macro_form.call(pos)
+
+  # Event probability at meso scale
+  trigger = bernoulli_gate(meso_density).call(pos)
+
+  # Playback modulation at micro scale
+  rate_mod = 0.8 + micro_rate.call(pos) * 0.4
+
+  if trigger > 0.5
+    sample :drum_heavy_kick,
+           amp: intensity * 0.8,
+           rate: rate_mod
+  end
+  sleep 0.125
+end
+```
+
+### Mark Fell - Pattern Synthesis with Non-Linear Time
+
+Create emergent patterns through rule-based composition:
+
+```ruby
+# Nested temporal structures
+outer = sine(rate: 0.25)  # Slow evolution
+
+# Inner rate modulated by outer (non-linear time)
+inner = lambda do |pos|
+  rate = 1 + outer.call(pos) * 8  # Rate varies 1-9
+  sine(rate: rate).call(pos)
+end
+
+# Probability modulated by both scales
+prob = lambda do |pos|
+  (outer.call(pos) + inner.call(pos)) / 2.0
+end
+
+# Stochastic but deterministic triggering
+gate = bernoulli_gate(prob)
+
+64.times do |i|
+  pos = i / 64.0
+  play :c3, amp: 0.5 if gate.call(pos) > 0.5
+  sleep 0.0625
+end
+```
+
+### Sample Morphing & Selection
+
+Use curves to control sample selection for timbral evolution:
+
+```ruby
+# Morph through 128 samples in a directory
+morph = ease_in_out(exp: 2)
+selector = sample_selector(morph, num_samples: 128)
+
+16.times do |i|
+  pos = i / 16.0
+  idx = selector.call(pos)  # Returns 0-127
+
+  # Use idx to select sample file
+  sample "path/to/samples_#{idx.to_s.rjust(3, '0')}.wav"
+  sleep 0.25
+end
+
+# Select between different sample categories
+categories = [:kick, :snare, :hat, :clap]
+cat_curve = sequencer([0, 0.33, 0.66, 1.0])
+cat_selector = categorical_sample(cat_curve, categories)
+
+16.times do |i|
+  pos = i / 16.0
+  category = cat_selector.call(pos)  # Returns :kick, :snare, etc.
+  sample category  # Play the selected category
+  sleep 0.25
+end
+```
+
+### Probability-Driven Composition
+
+Create evolving rhythmic patterns with deterministic randomness:
+
+```ruby
+# Density increases over time
+density = ramp  # 0 to 1
+gate = bernoulli_gate(density)
+
+32.times do |i|
+  pos = i / 32.0
+
+  # Position-seeded: same pos always gives same result
+  if gate.call(pos) > 0.5
+    sample :bd_haus, amp: 0.8
+  end
+  sleep 0.125
+end
+
+# Schmitt gate prevents jittery triggering
+wobbly = mix(sine(rate: 1), 0.7, noise, 0.3)
+stable = schmitt_gate(wobbly, threshold_low: 0.4, threshold_high: 0.6)
+
+32.times do |i|
+  pos = i / 32.0
+
+  if stable.call(pos) > 0.5
+    sample :sn_dolf  # Clean on/off, no double triggers
+  end
+  sleep 0.125
+end
+```
+
+### Behavior Transition & Pattern Morphing
+
+Smoothly morph between different compositional behaviors:
+
+```ruby
+# Two different rhythmic patterns
+pattern_a = pulse(width: 0.25, rate: 4)
+pattern_b = pulse(width: 0.15, rate: 6, phase: 0.1)
+
+# Transition curve (linear crossfade)
+transition = ramp
+
+# Hybrid pattern that morphs from A to B
+hybrid = behavior_transition(pattern_a, pattern_b, transition)
+
+32.times do |i|
+  pos = i / 32.0
+
+  if hybrid.call(pos) > 0.5
+    sample :bd_tek
+  end
+  sleep 0.125
+end
+```
+
+### Temporal Sequence Control
+
+Let curves control which events play and when:
+
+```ruby
+# Events progress through array based on curve
+events = [:bd_haus, :sn_dolf, :drum_cymbal_closed, :elec_blip]
+timing = ease_in(exp: 2)  # Accelerating progression
+seq = temporal_sequence(timing, events)
+
+16.times do |i|
+  pos = i / 16.0
+  event, time_in_event = seq.call(pos)
+
+  # Play event with modulation based on position within event
+  sample event,
+         amp: 0.5 + time_in_event * 0.3,
+         rate: 0.9 + time_in_event * 0.2
+  sleep 0.25
+end
+```
+
+## Theoretical Framework
+
+### Curtis Roads - Sound Objects & Time Scales
+
+**Micro Time (1-100ms):** Individual sample manipulation
+- Use `sample_selector()` for timbral morphing
+- Modulate rate, pitch, filters with fast curves (`rate: 8-32`)
+
+**Meso Time (100ms-10s):** Phrase and pattern structure
+- Use `bernoulli_gate()` and `density_curve()` for event patterns
+- Control with medium-speed curves (`rate: 1-4`)
+
+**Macro Time (10s+):** Overall compositional form
+- Use `breakpoints()` and `adsr()` for structural envelopes
+- Control with slow curves (`rate: 0.1-0.5`)
+
+### Mark Fell - Pattern Synthesis
+
+**Deterministic Rules + Stochasticity + Feedback = Emergent Patterns**
+
+- **Rules:** Define curves that control parameters
+- **Stochasticity:** Use `bernoulli_gate()` with position-seeded randomness
+- **Feedback:** Nest curves (curves calling curves) for self-similar structures
+- **Non-Linear Time:** Variable event density, state-dependent durations
+
+**Key Principle:** Patterns emerge from simple rules applied across multiple time scales with controlled randomness.

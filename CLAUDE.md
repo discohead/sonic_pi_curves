@@ -9,7 +9,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Architecture
 
 ### Module Structure
-- **`SonicPiCurves`** (aliased as `SPCurves`): Main module containing all curve generators and helpers
+- All functions are defined at **top-level** (global scope) for Sonic Pi compatibility
+- Sonic Pi doesn't support `include` or `extend` for modules in its sandboxed runtime
 - All curve generators return **lambdas** that map position (0-1) → output values (typically 0-1)
 - Everything is **composable**: curves can be chained, mixed, and nested
 
@@ -41,14 +42,14 @@ ruby sonic_pi_curves_test.rb
 
 # Test in Sonic Pi (load in editor)
 load "~/path/to/sonic_pi_curves.rb"
-include SonicPiCurves
+# All functions available immediately
 ```
 
 ### Sonic Pi Integration
 Users load this library into Sonic Pi:
 ```ruby
 load "~/sonic_pi_curves.rb"
-include SonicPiCurves  # or SPCurves for short alias
+# All functions are available immediately (no include needed)
 ```
 
 No build system, linting, or dependencies—just pure Ruby stdlib.
